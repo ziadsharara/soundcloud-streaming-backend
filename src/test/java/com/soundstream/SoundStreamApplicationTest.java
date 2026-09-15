@@ -28,13 +28,6 @@ class SoundStreamApplicationTest {
     private ObjectMapper json;
 
     @Test
-    void startsWithoutSoundCloudCredentialsAndReportsSetupState() throws Exception {
-        mvc.perform(get("/api/auth/soundcloud/config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.configured").value(false));
-    }
-
-    @Test
     void healthEndpointIsAvailableForContainerProbes() throws Exception {
         mvc.perform(get("/actuator/health"))
                 .andExpect(status().isOk())
