@@ -25,8 +25,10 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
@@ -38,6 +40,7 @@ public class SoundCloudService {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
     private static final long STATE_TTL_MS = Duration.ofMinutes(10).toMillis();
     private static final long SESSION_TTL_MS = Duration.ofDays(30).toMillis();
+    private static final int MAX_LIBRARY_PAGES = 1_000;
 
     private final String clientId;
     private final String clientSecret;
@@ -122,14 +125,11 @@ public class SoundCloudService {
 
     public Library library(String sessionId) {
         UserSession session = requireSession(sessionId);
-        JsonNode playlists = apiGet("/me/playlists?show_tracks=false&linked_partitioning=true&limit=50", session, true);
-        JsonNode likedTracks = apiGet("/me/likes/tracks?linked_partitioning=true&limit=50", session, true);
-        JsonNode likedPlaylists = apiGet("/me/likes/playlists?show_tracks=false&linked_partitioning=true&limit=50", session, true);
         return new Library(
                 session.profile,
-                items(playlists, "playlist"),
-                items(likedTracks, "track"),
-                items(likedPlaylists, "playlist"));
+                allItems("/me/playlists?show_tracks=false&linked_partitioning=true&limit=50", "playlist", session),
+                allItems("/me/likes/tracks?linked_partitioning=true&limit=50", "track", session),
+                allItems("/me/likes/playlists?show_tracks=false&linked_partitioning=true&limit=50", "playlist", session));
     }
 
     public void signOut(String sessionId) {
@@ -173,8 +173,12 @@ public class SoundCloudService {
     }
 
     private JsonNode apiGet(String path, UserSession session, boolean allowRefresh) {
+        return apiGet(URI.create(API_ROOT + path), session, allowRefresh);
+    }
+
+    private JsonNode apiGet(URI uri, UserSession session, boolean allowRefresh) {
         refreshIfNeeded(session);
-        HttpRequest request = HttpRequest.newBuilder(URI.create(API_ROOT + path))
+        HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/json; charset=utf-8")
                 .header("Authorization", "OAuth " + session.accessToken)
@@ -183,7 +187,7 @@ public class SoundCloudService {
         HttpResponse<String> response = send(request);
         if (response.statusCode() == 401 && allowRefresh) {
             refresh(session);
-            return apiGet(path, session, false);
+            return apiGet(uri, session, false);
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
@@ -191,6 +195,39 @@ public class SoundCloudService {
                             : "SoundCloud could not load your library");
         }
         return parse(response.body());
+    }
+
+    private List<LibraryItem> allItems(String initialPath, String expectedKind, UserSession session) {
+        List<LibraryItem> result = new ArrayList<>();
+        Set<URI> visited = new HashSet<>();
+        URI pageUri = URI.create(API_ROOT + initialPath);
+
+        while (pageUri != null) {
+            if (!visited.add(pageUri) || visited.size() > MAX_LIBRARY_PAGES) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                        "SoundCloud returned invalid library pagination");
+            }
+            JsonNode page = apiGet(pageUri, session, true);
+            result.addAll(items(page, expectedKind));
+            String nextHref = page.path("next_href").asText("");
+            pageUri = nextHref.isBlank() ? null : trustedApiUri(nextHref);
+        }
+        return List.copyOf(result);
+    }
+
+    private static URI trustedApiUri(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!"https".equalsIgnoreCase(uri.getScheme())
+                    || !"api.soundcloud.com".equalsIgnoreCase(uri.getHost())
+                    || uri.getRawUserInfo() != null) {
+                throw new IllegalArgumentException();
+            }
+            return uri;
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "SoundCloud returned an invalid library page URL");
+        }
     }
 
     private void refreshIfNeeded(UserSession session) {
