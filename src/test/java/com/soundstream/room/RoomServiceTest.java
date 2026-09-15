@@ -1,7 +1,12 @@
 package com.soundstream.room;
 
+import com.soundstream.room.RoomDtos.ChatMessage;
 import com.soundstream.room.RoomDtos.PlaybackUpdate;
+import com.soundstream.room.RoomDtos.QueueUpdate;
 import org.junit.jupiter.api.Test;
+
+import java.util.Collections;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,5 +76,43 @@ class RoomServiceTest {
         assertThat(RoomService.isSoundCloudUrl("https://user@soundcloud.com/artist/track")).isFalse();
         assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com:8443/artist/track")).isFalse();
         assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com/")).isFalse();
+    }
+
+    @Test
+    void acceptsQueueUpdatesFromTheHost() {
+        Room room = service.create("Room", "Host");
+        List<String> tracks = List.of(TRACK, "https://soundcloud.com/artist/next-track");
+
+        var state = service.updateQueue(room.getId(), new QueueUpdate(room.getHostToken(), tracks, 0));
+
+        assertThat(state).isPresent();
+        assertThat(state.get().trackUrls()).containsExactlyElementsOf(tracks);
+        assertThat(state.get().activeIndex()).isZero();
+        assertThat(room.getQueue()).isEqualTo(state.get());
+    }
+
+    @Test
+    void rejectsUnauthorizedInvalidOrOversizedQueues() {
+        Room room = service.create("Room", "Host");
+
+        assertThat(service.updateQueue(room.getId(), new QueueUpdate("wrong", List.of(TRACK), 0))).isEmpty();
+        assertThat(service.updateQueue(room.getId(),
+                new QueueUpdate(room.getHostToken(), List.of("https://evil.example/track"), 0))).isEmpty();
+        assertThat(service.updateQueue(room.getId(),
+                new QueueUpdate(room.getHostToken(), List.of(TRACK), 1))).isEmpty();
+        assertThat(service.updateQueue(room.getId(),
+                new QueueUpdate(room.getHostToken(), Collections.nCopies(101, TRACK), 0))).isEmpty();
+    }
+
+    @Test
+    void retainsOnlyTheMostRecentFiftyChatMessages() {
+        Room room = service.create("Room", "Host");
+        for (int i = 0; i < 55; i++) {
+            room.addChatMessage(new ChatMessage(Integer.toString(i), "Guest", "Message " + i, false, i));
+        }
+
+        assertThat(room.getChatHistory()).hasSize(50);
+        assertThat(room.getChatHistory().getFirst().id()).isEqualTo("5");
+        assertThat(room.getChatHistory().getLast().id()).isEqualTo("54");
     }
 }

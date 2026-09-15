@@ -6,7 +6,8 @@ Spring Boot API and STOMP/WebSocket broker for synchronized SoundCloud listening
 
 - Create, discover, and close listening rooms.
 - Host-authorized play, pause, seek, and track-change broadcasts.
-- Listener presence and room chat over WebSockets.
+- Listener presence, a shared upcoming queue, and room chat over WebSockets.
+- Recent chat history for listeners who join after the conversation starts.
 - Public SoundCloud song, playlist, and album URL playback through the official embedded player.
 - Docker image with a non-root runtime user and health check.
 

@@ -43,6 +43,9 @@ class SoundStreamApplicationTest {
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.room.name").value("Integration room"))
+                .andExpect(jsonPath("$.room.queue.trackUrls").isEmpty())
+                .andExpect(jsonPath("$.room.queue.activeIndex").value(-1))
+                .andExpect(jsonPath("$.room.chat").isEmpty())
                 .andExpect(jsonPath("$.room.hostToken").doesNotExist())
                 .andExpect(jsonPath("$.hostToken").isString())
                 .andReturn().getResponse().getContentAsString();

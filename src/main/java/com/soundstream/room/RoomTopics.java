@@ -13,6 +13,10 @@ public final class RoomTopics {
         return "/topic/rooms/" + roomId + "/listeners";
     }
 
+    public static String queue(String roomId) {
+        return "/topic/rooms/" + roomId + "/queue";
+    }
+
     public static String chat(String roomId) {
         return "/topic/rooms/" + roomId + "/chat";
     }

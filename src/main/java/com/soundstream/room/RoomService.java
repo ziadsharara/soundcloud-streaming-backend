@@ -1,6 +1,7 @@
 package com.soundstream.room;
 
 import com.soundstream.room.RoomDtos.PlaybackUpdate;
+import com.soundstream.room.RoomDtos.QueueUpdate;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -20,6 +21,7 @@ public class RoomService {
 
     private static final String ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int ID_LENGTH = 6;
+    private static final int MAX_QUEUE_SIZE = 100;
     private static final List<String> SOUNDCLOUD_HOSTS = List.of(
             "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com");
 
@@ -73,6 +75,28 @@ public class RoomService {
                 Math.max(0, update.positionMs()),
                 System.currentTimeMillis());
         room.setPlayback(state);
+        return Optional.of(state);
+    }
+
+    /** Applies a bounded, host-authorized queue update. */
+    public Optional<QueueState> updateQueue(String roomId, QueueUpdate update) {
+        Room room = rooms.get(roomId);
+        if (room == null || update == null || !room.isHost(update.hostToken())
+                || update.trackUrls() == null || update.trackUrls().size() > MAX_QUEUE_SIZE) {
+            return Optional.empty();
+        }
+        List<String> trackUrls = update.trackUrls().stream()
+                .map(url -> url == null ? "" : url.strip())
+                .toList();
+        if (trackUrls.stream().anyMatch(url -> !isSoundCloudUrl(url))) {
+            return Optional.empty();
+        }
+        int activeIndex = update.activeIndex();
+        if (activeIndex < -1 || activeIndex >= trackUrls.size()) {
+            return Optional.empty();
+        }
+        QueueState state = new QueueState(List.copyOf(trackUrls), activeIndex, System.currentTimeMillis());
+        room.setQueue(state);
         return Optional.of(state);
     }
 
