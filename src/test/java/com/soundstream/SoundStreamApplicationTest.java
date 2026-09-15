@@ -84,4 +84,13 @@ class SoundStreamApplicationTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
     }
+
+    @Test
+    void corsAllowsTheCanonicalInviteOrigin() throws Exception {
+        mvc.perform(options("/api/rooms")
+                        .header("Origin", "https://soundstreaming.vercel.app")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://soundstreaming.vercel.app"));
+    }
 }

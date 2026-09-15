@@ -31,6 +31,7 @@ docker compose up --build
 |---|---|
 | `PORT` | HTTP port, defaults to `8080` |
 | `FRONTEND_ORIGINS` | Comma-separated exact frontend origins allowed by CORS |
+| `PUBLIC_FRONTEND_ORIGIN` | Canonical invite-link origin, defaults to `https://soundstreaming.vercel.app` |
 
 No SoundCloud API credentials or Artist Pro account are required. The backend relays room state only; audio plays directly from SoundCloud in each listener's browser. Rooms are currently in memory and are intentionally cleared on restart; use Redis or a database before scaling beyond one instance.
 

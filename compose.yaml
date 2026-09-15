@@ -7,3 +7,4 @@ services:
       - "${PORT:-8080}:8080"
     environment:
       FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-http://localhost:5173}
+      PUBLIC_FRONTEND_ORIGIN: ${PUBLIC_FRONTEND_ORIGIN:-https://soundstreaming.vercel.app}
