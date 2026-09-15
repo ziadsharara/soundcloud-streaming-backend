@@ -3,6 +3,7 @@ package com.soundstream.room;
 import com.soundstream.room.RoomDtos.PlaybackUpdate;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.security.SecureRandom;
 import java.util.Comparator;
 import java.util.List;
@@ -10,7 +11,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 
 /**
  * In-memory room registry. Rooms disappear when the server restarts.
@@ -20,7 +20,8 @@ public class RoomService {
 
     private static final String ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int ID_LENGTH = 6;
-    private static final Pattern SOUNDCLOUD_URL = Pattern.compile("^https://(www\\.|m\\.)?soundcloud\\.com/.+");
+    private static final List<String> SOUNDCLOUD_HOSTS = List.of(
+            "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com");
 
     private final Map<String, Room> rooms = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
@@ -58,7 +59,7 @@ public class RoomService {
         if (room == null || update == null || !room.isHost(update.hostToken())) {
             return Optional.empty();
         }
-        if (update.trackUrl() == null || !SOUNDCLOUD_URL.matcher(update.trackUrl()).matches()) {
+        if (!isSoundCloudUrl(update.trackUrl())) {
             return Optional.empty();
         }
         String artwork = update.artworkUrl() != null && update.artworkUrl().startsWith("https://")
@@ -81,6 +82,24 @@ public class RoomService {
         }
         String stripped = value.strip();
         return stripped.length() > max ? stripped.substring(0, max) : stripped;
+    }
+
+    static boolean isSoundCloudUrl(String value) {
+        try {
+            URI uri = URI.create(value == null ? "" : value.strip());
+            String host = uri.getHost();
+            String path = uri.getRawPath();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && host != null
+                    && SOUNDCLOUD_HOSTS.contains(host.toLowerCase())
+                    && uri.getRawUserInfo() == null
+                    && uri.getPort() == -1
+                    && path != null
+                    && !path.isBlank()
+                    && !"/".equals(path);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private String newId() {

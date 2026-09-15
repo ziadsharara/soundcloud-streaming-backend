@@ -53,4 +53,23 @@ class RoomServiceTest {
 
         assertThat(state).isEmpty();
     }
+
+    @Test
+    void acceptsSoundCloudShareLinks() {
+        Room room = service.create("Room", "Host");
+
+        var state = service.updatePlayback(room.getId(),
+                new PlaybackUpdate(room.getHostToken(), "https://on.soundcloud.com/AbCdEf", "", "", "", true, 0));
+
+        assertThat(state).isPresent();
+    }
+
+    @Test
+    void rejectsLookalikeInsecureAndCredentialedUrls() {
+        assertThat(RoomService.isSoundCloudUrl("http://soundcloud.com/artist/track")).isFalse();
+        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com.evil.example/artist/track")).isFalse();
+        assertThat(RoomService.isSoundCloudUrl("https://user@soundcloud.com/artist/track")).isFalse();
+        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com:8443/artist/track")).isFalse();
+        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com/")).isFalse();
+    }
 }

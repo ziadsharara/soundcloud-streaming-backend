@@ -36,6 +36,11 @@ class SoundCloudServiceTest {
                         {"urn":"soundcloud:users:1","username":"DJ Test","permalink_url":"https://soundcloud.com/dj-test"}
                         """);
             }
+            if (url.equals("https://api.soundcloud.com/me/recently-played/tracks?access=playable")) {
+                return response(200, """
+                        [{"urn":"soundcloud:tracks:4","title":"Just played","permalink_url":"https://soundcloud.com/artist/just-played"}]
+                        """);
+            }
             if (url.equals("https://api.soundcloud.com/me/playlists?cursor=next-page")) {
                 return response(200, """
                         {"collection":[{"urn":"soundcloud:playlists:2","title":"Second set","permalink_url":"https://soundcloud.com/dj-test/sets/second"}]}
@@ -80,6 +85,8 @@ class SoundCloudServiceTest {
         Library library = service.library(login.sessionId());
 
         assertEquals("DJ Test", library.profile().username());
+        assertEquals(List.of("Just played"),
+                library.recentlyPlayed().stream().map(item -> item.title()).toList());
         assertEquals(List.of("First set", "Second set"),
                 library.playlists().stream().map(item -> item.title()).toList());
         assertEquals(List.of("Liked track"),

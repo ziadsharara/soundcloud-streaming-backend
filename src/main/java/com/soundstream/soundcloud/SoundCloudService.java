@@ -127,6 +127,7 @@ public class SoundCloudService {
         UserSession session = requireSession(sessionId);
         return new Library(
                 session.profile,
+                items(apiGet("/me/recently-played/tracks?access=playable", session, true), "track"),
                 allItems("/me/playlists?show_tracks=false&linked_partitioning=true&limit=50", "playlist", session),
                 allItems("/me/likes/tracks?linked_partitioning=true&limit=50", "track", session),
                 allItems("/me/likes/playlists?show_tracks=false&linked_partitioning=true&limit=50", "playlist", session));
@@ -177,16 +178,16 @@ public class SoundCloudService {
     }
 
     private JsonNode apiGet(URI uri, UserSession session, boolean allowRefresh) {
-        refreshIfNeeded(session);
+        String accessToken = validAccessToken(session);
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/json; charset=utf-8")
-                .header("Authorization", "OAuth " + session.accessToken)
+                .header("Authorization", "OAuth " + accessToken)
                 .GET()
                 .build();
         HttpResponse<String> response = send(request);
         if (response.statusCode() == 401 && allowRefresh) {
-            refresh(session);
+            refreshAfterUnauthorized(session, accessToken);
             return apiGet(uri, session, false);
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -230,24 +231,33 @@ public class SoundCloudService {
         }
     }
 
-    private void refreshIfNeeded(UserSession session) {
-        if (session.accessExpiresAt <= System.currentTimeMillis() + Duration.ofSeconds(30).toMillis()) {
-            refresh(session);
+    private String validAccessToken(UserSession session) {
+        synchronized (session) {
+            if (session.accessExpiresAt <= System.currentTimeMillis() + Duration.ofSeconds(30).toMillis()) {
+                refreshLocked(session);
+            }
+            return session.accessToken;
         }
     }
 
-    private void refresh(UserSession session) {
+    private void refreshAfterUnauthorized(UserSession session, String rejectedAccessToken) {
         synchronized (session) {
-            JsonNode tokens = tokenRequest(Map.of(
-                    "grant_type", "refresh_token",
-                    "client_id", clientId,
-                    "client_secret", clientSecret,
-                    "refresh_token", session.refreshToken));
-            session.accessToken = requiredText(tokens, "access_token");
-            session.refreshToken = requiredText(tokens, "refresh_token");
-            long expiresIn = Math.max(60, tokens.path("expires_in").asLong(3600));
-            session.accessExpiresAt = System.currentTimeMillis() + Duration.ofSeconds(expiresIn).toMillis();
+            if (rejectedAccessToken.equals(session.accessToken)) {
+                refreshLocked(session);
+            }
         }
+    }
+
+    private void refreshLocked(UserSession session) {
+        JsonNode tokens = tokenRequest(Map.of(
+                "grant_type", "refresh_token",
+                "client_id", clientId,
+                "client_secret", clientSecret,
+                "refresh_token", session.refreshToken));
+        session.accessToken = requiredText(tokens, "access_token");
+        session.refreshToken = requiredText(tokens, "refresh_token");
+        long expiresIn = Math.max(60, tokens.path("expires_in").asLong(3600));
+        session.accessExpiresAt = System.currentTimeMillis() + Duration.ofSeconds(expiresIn).toMillis();
     }
 
     private JsonNode tokenRequest(Map<String, String> fields) {

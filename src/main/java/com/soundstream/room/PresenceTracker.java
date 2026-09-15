@@ -29,8 +29,8 @@ public class PresenceTracker {
 
     private final RoomService rooms;
     private final SimpMessagingTemplate messaging;
-    /** "sessionId:subscriptionId" -> roomId */
-    private final Map<String, String> subscriptions = new ConcurrentHashMap<>();
+    /** "sessionId:subscriptionId" -> subscription. A session counts once per room. */
+    private final Map<String, Subscription> subscriptions = new ConcurrentHashMap<>();
 
     public PresenceTracker(RoomService rooms, SimpMessagingTemplate messaging) {
         this.rooms = rooms;
@@ -38,7 +38,11 @@ public class PresenceTracker {
     }
 
     public int count(String roomId) {
-        return (int) subscriptions.values().stream().filter(roomId::equals).count();
+        return (int) subscriptions.values().stream()
+                .filter(subscription -> roomId.equals(subscription.roomId()))
+                .map(Subscription::sessionId)
+                .distinct()
+                .count();
     }
 
     @EventListener
@@ -53,16 +57,17 @@ public class PresenceTracker {
             return;
         }
         String roomId = matcher.group(1);
-        subscriptions.put(key(headers.getSessionId(), headers.getSubscriptionId()), roomId);
+        subscriptions.put(key(headers.getSessionId(), headers.getSubscriptionId()),
+                new Subscription(roomId, headers.getSessionId()));
         broadcastCount(roomId);
     }
 
     @EventListener
     public void onUnsubscribe(SessionUnsubscribeEvent event) {
         StompHeaderAccessor headers = StompHeaderAccessor.wrap(event.getMessage());
-        String roomId = subscriptions.remove(key(headers.getSessionId(), headers.getSubscriptionId()));
-        if (roomId != null) {
-            broadcastCount(roomId);
+        Subscription subscription = subscriptions.remove(key(headers.getSessionId(), headers.getSubscriptionId()));
+        if (subscription != null) {
+            broadcastCount(subscription.roomId());
         }
     }
 
@@ -72,7 +77,7 @@ public class PresenceTracker {
         Set<String> affectedRooms = new HashSet<>();
         subscriptions.entrySet().removeIf(entry -> {
             if (entry.getKey().startsWith(prefix)) {
-                affectedRooms.add(entry.getValue());
+                affectedRooms.add(entry.getValue().roomId());
                 return true;
             }
             return false;
@@ -88,5 +93,8 @@ public class PresenceTracker {
 
     private static String key(String sessionId, String subscriptionId) {
         return sessionId + ":" + subscriptionId;
+    }
+
+    private record Subscription(String roomId, String sessionId) {
     }
 }

@@ -31,6 +31,7 @@ public final class SoundCloudDtos {
 
     public record Library(
             Profile profile,
+            List<LibraryItem> recentlyPlayed,
             List<LibraryItem> playlists,
             List<LibraryItem> likedTracks,
             List<LibraryItem> likedPlaylists) {
