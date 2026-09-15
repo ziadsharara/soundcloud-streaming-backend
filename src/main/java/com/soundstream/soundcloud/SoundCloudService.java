@@ -36,6 +36,7 @@ public class SoundCloudService {
 
     private static final URI AUTHORIZE_URI = URI.create("https://secure.soundcloud.com/authorize");
     private static final URI TOKEN_URI = URI.create("https://secure.soundcloud.com/oauth/token");
+    private static final URI SIGN_OUT_URI = URI.create("https://secure.soundcloud.com/sign-out");
     private static final String API_ROOT = "https://api.soundcloud.com";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
     private static final long STATE_TTL_MS = Duration.ofMinutes(10).toMillis();
@@ -134,8 +135,24 @@ public class SoundCloudService {
     }
 
     public void signOut(String sessionId) {
-        if (sessionId != null) {
-            sessions.remove(sessionId);
+        if (sessionId == null) {
+            return;
+        }
+        UserSession session = sessions.remove(sessionId);
+        if (session == null) {
+            return;
+        }
+
+        HttpRequest request = HttpRequest.newBuilder(SIGN_OUT_URI)
+                .timeout(REQUEST_TIMEOUT)
+                .header("Accept", "application/json; charset=utf-8")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json(Map.of("access_token", session.accessToken))))
+                .build();
+        HttpResponse<String> response = send(request);
+        if ((response.statusCode() < 200 || response.statusCode() >= 300) && response.statusCode() != 401) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "SoundCloud sign-out could not be completed");
         }
     }
 
@@ -290,6 +307,14 @@ public class SoundCloudService {
             return json.readTree(body);
         } catch (JacksonException e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "SoundCloud returned an invalid response", e);
+        }
+    }
+
+    private String json(Object value) {
+        try {
+            return json.writeValueAsString(value);
+        } catch (JacksonException e) {
+            throw new IllegalStateException("Could not encode SoundCloud request", e);
         }
     }
 

@@ -8,10 +8,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -22,6 +25,7 @@ class SoundCloudServiceTest {
     @Test
     void loadsEverySoundCloudLibraryPage() throws Exception {
         HttpClient http = mock(HttpClient.class);
+        AtomicBoolean signedOut = new AtomicBoolean();
         when(http.send(any(HttpRequest.class), anyStringBodyHandler())).thenAnswer(invocation -> {
             HttpRequest request = invocation.getArgument(0);
             String url = request.uri().toString();
@@ -29,6 +33,12 @@ class SoundCloudServiceTest {
                 return response(200, """
                         {"access_token":"access-token","refresh_token":"refresh-token","expires_in":3600}
                         """);
+            }
+            if (url.equals("https://secure.soundcloud.com/sign-out")) {
+                assertEquals("POST", request.method());
+                assertEquals("application/json", request.headers().firstValue("Content-Type").orElse(""));
+                signedOut.set(true);
+                return response(204, "");
             }
             assertEquals("OAuth access-token", request.headers().firstValue("Authorization").orElse(""));
             if (url.equals("https://api.soundcloud.com/me")) {
@@ -92,6 +102,11 @@ class SoundCloudServiceTest {
         assertEquals(List.of("Liked track"),
                 library.likedTracks().stream().map(item -> item.title()).toList());
         assertTrue(library.likedPlaylists().isEmpty());
+
+        service.signOut(login.sessionId());
+
+        assertTrue(signedOut.get());
+        assertThrows(ResponseStatusException.class, () -> service.sessionProfile(login.sessionId()));
     }
 
     @SuppressWarnings("unchecked")
