@@ -25,7 +25,7 @@ public class RoomService {
     private static final int MAX_QUEUE_SIZE = 100;
     /** Avatars and stickers are picked from drawn sets in the frontend; ids are slugs. */
     private static final Pattern SLUG = Pattern.compile("[a-z0-9-]{1,24}");
-    static final String DEFAULT_AVATAR = "cassette";
+    static final String DEFAULT_AVATAR = "bun";
 
     private final Map<String, Room> rooms = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
