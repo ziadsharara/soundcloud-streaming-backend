@@ -21,4 +21,4 @@ jobs:
       - name: Test
         run: ./mvnw --batch-mode verify
       - name: Build container
-        run: docker build --tag soundcloud-streaming-backend:${{ github.sha }} .
+        run: docker build --tag soundstream-backend:${{ github.sha }} .

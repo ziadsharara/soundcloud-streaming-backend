@@ -9,8 +9,8 @@ public final class RoomTopics {
         return "/topic/rooms/" + roomId + "/playback";
     }
 
-    public static String listeners(String roomId) {
-        return "/topic/rooms/" + roomId + "/listeners";
+    public static String members(String roomId) {
+        return "/topic/rooms/" + roomId + "/members";
     }
 
     public static String queue(String roomId) {

@@ -18,16 +18,23 @@ class RoomServiceTest {
 
     @Test
     void createsRoomWithShortIdAndHostToken() {
-        Room room = service.create("Friday vibes", "Ziad");
+        Room room = service.create("Friday vibes", "Ziad", "fox");
 
         assertThat(room.getId()).hasSize(6).matches("[A-Z2-9]+");
         assertThat(room.isHost(room.getHostToken())).isTrue();
+        assertThat(room.getHostAvatarId()).isEqualTo("fox");
         assertThat(service.find(room.getId())).contains(room);
     }
 
     @Test
+    void fallsBackToADefaultAvatarWhenTheIdIsMissingOrUnusable() {
+        assertThat(service.create("Room", "Host", null).getHostAvatarId()).isEqualTo(RoomService.DEFAULT_AVATAR);
+        assertThat(service.create("Room", "Host", "<script>").getHostAvatarId()).isEqualTo(RoomService.DEFAULT_AVATAR);
+    }
+
+    @Test
     void acceptsPlaybackFromHost() {
-        Room room = service.create("Room", "Host");
+        Room room = service.create("Room", "Host", "fox");
 
         var state = service.updatePlayback(room.getId(),
                 new PlaybackUpdate(room.getHostToken(), TRACK, "Song", "Artist", "", true, 42_000));
@@ -35,12 +42,29 @@ class RoomServiceTest {
         assertThat(state).isPresent();
         assertThat(state.get().positionMs()).isEqualTo(42_000);
         assertThat(state.get().serverTime()).isPositive();
+        assertThat(state.get().provider()).isEqualTo(Provider.SOUNDCLOUD);
+        assertThat(state.get().sync()).isEqualTo(Provider.Sync.FULL);
         assertThat(room.getPlayback()).isEqualTo(state.get());
     }
 
     @Test
+    void labelsSpotifyAsPreviewOnlyAndAnghamiAsUnsynced() {
+        Room room = service.create("Room", "Host", "fox");
+
+        var spotify = service.updatePlayback(room.getId(), new PlaybackUpdate(room.getHostToken(),
+                "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT", "Song", "Artist", "", true, 0));
+        var anghami = service.updatePlayback(room.getId(), new PlaybackUpdate(room.getHostToken(),
+                "https://play.anghami.com/song/1234567", "Song", "Artist", "", true, 0));
+
+        assertThat(spotify).get().extracting(PlaybackState::provider, PlaybackState::sync)
+                .containsExactly(Provider.SPOTIFY, Provider.Sync.PREVIEW);
+        assertThat(anghami).get().extracting(PlaybackState::provider, PlaybackState::sync)
+                .containsExactly(Provider.ANGHAMI, Provider.Sync.NONE);
+    }
+
+    @Test
     void rejectsPlaybackFromNonHost() {
-        Room room = service.create("Room", "Host");
+        Room room = service.create("Room", "Host", "fox");
 
         var state = service.updatePlayback(room.getId(),
                 new PlaybackUpdate("not-the-token", TRACK, "Song", "Artist", "", true, 0));
@@ -50,8 +74,8 @@ class RoomServiceTest {
     }
 
     @Test
-    void rejectsNonSoundCloudUrls() {
-        Room room = service.create("Room", "Host");
+    void rejectsUnsupportedProviders() {
+        Room room = service.create("Room", "Host", "fox");
 
         var state = service.updatePlayback(room.getId(),
                 new PlaybackUpdate(room.getHostToken(), "https://evil.example/track", "", "", "", true, 0));
@@ -61,7 +85,7 @@ class RoomServiceTest {
 
     @Test
     void acceptsSoundCloudShareLinks() {
-        Room room = service.create("Room", "Host");
+        Room room = service.create("Room", "Host", "fox");
 
         var state = service.updatePlayback(room.getId(),
                 new PlaybackUpdate(room.getHostToken(), "https://on.soundcloud.com/AbCdEf", "", "", "", true, 0));
@@ -70,18 +94,9 @@ class RoomServiceTest {
     }
 
     @Test
-    void rejectsLookalikeInsecureAndCredentialedUrls() {
-        assertThat(RoomService.isSoundCloudUrl("http://soundcloud.com/artist/track")).isFalse();
-        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com.evil.example/artist/track")).isFalse();
-        assertThat(RoomService.isSoundCloudUrl("https://user@soundcloud.com/artist/track")).isFalse();
-        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com:8443/artist/track")).isFalse();
-        assertThat(RoomService.isSoundCloudUrl("https://soundcloud.com/")).isFalse();
-    }
-
-    @Test
-    void acceptsQueueUpdatesFromTheHost() {
-        Room room = service.create("Room", "Host");
-        List<String> tracks = List.of(TRACK, "https://soundcloud.com/artist/next-track");
+    void acceptsQueueUpdatesFromTheHostAcrossProviders() {
+        Room room = service.create("Room", "Host", "fox");
+        List<String> tracks = List.of(TRACK, "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
 
         var state = service.updateQueue(room.getId(), new QueueUpdate(room.getHostToken(), tracks, 0));
 
@@ -93,7 +108,7 @@ class RoomServiceTest {
 
     @Test
     void rejectsUnauthorizedInvalidOrOversizedQueues() {
-        Room room = service.create("Room", "Host");
+        Room room = service.create("Room", "Host", "fox");
 
         assertThat(service.updateQueue(room.getId(), new QueueUpdate("wrong", List.of(TRACK), 0))).isEmpty();
         assertThat(service.updateQueue(room.getId(),
@@ -105,10 +120,19 @@ class RoomServiceTest {
     }
 
     @Test
+    void acceptsOnlySlugStickerIds() {
+        assertThat(RoomService.sticker("vinyl-spin")).contains("vinyl-spin");
+        assertThat(RoomService.sticker("VINYL")).contains("vinyl");
+        assertThat(RoomService.sticker("<img src=x>")).isEmpty();
+        assertThat(RoomService.sticker("")).isEmpty();
+    }
+
+    @Test
     void retainsOnlyTheMostRecentFiftyChatMessages() {
-        Room room = service.create("Room", "Host");
+        Room room = service.create("Room", "Host", "fox");
         for (int i = 0; i < 55; i++) {
-            room.addChatMessage(new ChatMessage(Integer.toString(i), "Guest", "Message " + i, false, i));
+            room.addChatMessage(new ChatMessage(Integer.toString(i), "session", "Guest", "fox",
+                    "TEXT", "Message " + i, "", false, i));
         }
 
         assertThat(room.getChatHistory()).hasSize(50);

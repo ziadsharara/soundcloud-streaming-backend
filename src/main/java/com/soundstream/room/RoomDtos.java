@@ -15,7 +15,8 @@ public final class RoomDtos {
 
     public record CreateRoomRequest(
             @NotBlank @Size(max = 60) String name,
-            @NotBlank @Size(max = 40) String hostName) {
+            @NotBlank @Size(max = 40) String hostName,
+            @Size(max = 24) String hostAvatarId) {
     }
 
     public record CreateRoomResponse(RoomSummary room, String hostToken) {
@@ -26,18 +27,24 @@ public final class RoomDtos {
             String id,
             String name,
             String hostName,
+            String hostAvatarId,
             int listeners,
+            List<Member> members,
             PlaybackState playback,
             QueueState queue,
             List<ChatMessage> chat,
             long createdAt,
             long serverNow) {
 
-        static RoomSummary of(Room room, int listeners) {
-            return new RoomSummary(room.getId(), room.getName(), room.getHostName(), listeners,
-                    room.getPlayback(), room.getQueue(), room.getChatHistory(), room.getCreatedAt(),
-                    System.currentTimeMillis());
+        static RoomSummary of(Room room, List<Member> members) {
+            return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
+                    members.size(), members, room.getPlayback(), room.getQueue(), room.getChatHistory(),
+                    room.getCreatedAt(), System.currentTimeMillis());
         }
+    }
+
+    /** Sent once per connection, after subscribing, to put a name and face in the room. */
+    public record JoinRequest(String hostToken, String name, String avatarId) {
     }
 
     /** Sent by the host's browser whenever its player changes state. */
@@ -55,9 +62,19 @@ public final class RoomDtos {
     public record QueueUpdate(String hostToken, List<String> trackUrls, int activeIndex) {
     }
 
-    public record ChatRequest(String hostToken, String author, String text) {
+    /** A chat message is either typed text or one of the drawn stickers. */
+    public record ChatRequest(String hostToken, String kind, String text, String stickerId) {
     }
 
-    public record ChatMessage(String id, String author, String text, boolean host, long serverTime) {
+    public record ChatMessage(
+            String id,
+            String memberId,
+            String author,
+            String avatarId,
+            String kind,
+            String text,
+            String stickerId,
+            boolean host,
+            long serverTime) {
     }
 }

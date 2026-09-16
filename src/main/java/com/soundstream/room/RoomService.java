@@ -4,7 +4,6 @@ import com.soundstream.room.RoomDtos.PlaybackUpdate;
 import com.soundstream.room.RoomDtos.QueueUpdate;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
 import java.security.SecureRandom;
 import java.util.Comparator;
 import java.util.List;
@@ -12,9 +11,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
- * In-memory room registry. Rooms disappear when the server restarts.
+ * In-memory room registry. Rooms disappear when the server restarts, and empty ones are
+ * swept away by {@link RoomCleanupService}.
  */
 @Service
 public class RoomService {
@@ -22,16 +23,18 @@ public class RoomService {
     private static final String ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int ID_LENGTH = 6;
     private static final int MAX_QUEUE_SIZE = 100;
-    private static final List<String> SOUNDCLOUD_HOSTS = List.of(
-            "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com");
+    /** Avatars and stickers are picked from drawn sets in the frontend; ids are slugs. */
+    private static final Pattern SLUG = Pattern.compile("[a-z0-9-]{1,24}");
+    static final String DEFAULT_AVATAR = "cassette";
 
     private final Map<String, Room> rooms = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
 
-    public Room create(String name, String hostName) {
+    public Room create(String name, String hostName, String hostAvatarId) {
         String token = UUID.randomUUID().toString();
         while (true) {
-            Room room = new Room(newId(), name, hostName, token, System.currentTimeMillis());
+            Room room = new Room(newId(), name, hostName, avatarOrDefault(hostAvatarId), token,
+                    System.currentTimeMillis());
             if (rooms.putIfAbsent(room.getId(), room) == null) {
                 return room;
             }
@@ -61,13 +64,16 @@ public class RoomService {
         if (room == null || update == null || !room.isHost(update.hostToken())) {
             return Optional.empty();
         }
-        if (!isSoundCloudUrl(update.trackUrl())) {
+        Optional<Provider> provider = Provider.detect(update.trackUrl());
+        if (provider.isEmpty()) {
             return Optional.empty();
         }
         String artwork = update.artworkUrl() != null && update.artworkUrl().startsWith("https://")
                 ? update.artworkUrl() : "";
         PlaybackState state = new PlaybackState(
-                update.trackUrl(),
+                update.trackUrl().strip(),
+                provider.get(),
+                provider.get().sync(),
                 clip(update.title(), 200),
                 clip(update.artist(), 100),
                 artwork,
@@ -88,7 +94,7 @@ public class RoomService {
         List<String> trackUrls = update.trackUrls().stream()
                 .map(url -> url == null ? "" : url.strip())
                 .toList();
-        if (trackUrls.stream().anyMatch(url -> !isSoundCloudUrl(url))) {
+        if (trackUrls.stream().anyMatch(url -> !Provider.isSupported(url))) {
             return Optional.empty();
         }
         int activeIndex = update.activeIndex();
@@ -108,22 +114,15 @@ public class RoomService {
         return stripped.length() > max ? stripped.substring(0, max) : stripped;
     }
 
-    static boolean isSoundCloudUrl(String value) {
-        try {
-            URI uri = URI.create(value == null ? "" : value.strip());
-            String host = uri.getHost();
-            String path = uri.getRawPath();
-            return "https".equalsIgnoreCase(uri.getScheme())
-                    && host != null
-                    && SOUNDCLOUD_HOSTS.contains(host.toLowerCase())
-                    && uri.getRawUserInfo() == null
-                    && uri.getPort() == -1
-                    && path != null
-                    && !path.isBlank()
-                    && !"/".equals(path);
-        } catch (IllegalArgumentException ignored) {
-            return false;
-        }
+    /** Keeps unknown ids out of the UI, where they would render as a missing drawing. */
+    static String avatarOrDefault(String avatarId) {
+        String slug = clip(avatarId, 24).toLowerCase(java.util.Locale.ROOT);
+        return SLUG.matcher(slug).matches() ? slug : DEFAULT_AVATAR;
+    }
+
+    static Optional<String> sticker(String stickerId) {
+        String slug = clip(stickerId, 24).toLowerCase(java.util.Locale.ROOT);
+        return SLUG.matcher(slug).matches() ? Optional.of(slug) : Optional.empty();
     }
 
     private String newId() {

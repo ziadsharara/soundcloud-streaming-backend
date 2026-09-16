@@ -2,99 +2,89 @@ package com.soundstream.room;
 
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
-import org.springframework.web.socket.messaging.SessionSubscribeEvent;
-import org.springframework.web.socket.messaging.SessionUnsubscribeEvent;
 
-import java.util.HashSet;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * Counts who is in each room by tracking subscriptions to the room's playback topic.
+ * Who is in each room. A browser announces itself on /app/rooms/{id}/join once its
+ * subscriptions are in place, and is dropped automatically when the socket closes.
  */
 @Component
 public class PresenceTracker {
 
-    private static final Pattern PLAYBACK_TOPIC = Pattern.compile("^/topic/rooms/([^/]+)/playback$");
-    /** Subscribe events fire before the broker registers the subscription, so delay the broadcast slightly. */
-    private static final long BROADCAST_DELAY_MS = 300;
+    /**
+     * A joining client subscribes and then sends its join in the same breath. The broadcast is
+     * delayed a moment so the new member's own subscription is registered before the list goes out.
+     */
+    private static final long BROADCAST_DELAY_MS = 250;
 
     private final RoomService rooms;
     private final SimpMessagingTemplate messaging;
-    /** "sessionId:subscriptionId" -> subscription. A session counts once per room. */
-    private final Map<String, Subscription> subscriptions = new ConcurrentHashMap<>();
+    /** STOMP session id -> where that session is sitting. */
+    private final Map<String, Presence> sessions = new ConcurrentHashMap<>();
 
     public PresenceTracker(RoomService rooms, SimpMessagingTemplate messaging) {
         this.rooms = rooms;
         this.messaging = messaging;
     }
 
+    /** Places a session in a room, replacing any earlier identity it announced. */
+    public void join(String roomId, String sessionId, String name, String avatarId, boolean host) {
+        Optional<Room> room = rooms.find(roomId);
+        if (room.isEmpty() || sessionId == null) {
+            return;
+        }
+        Member member = new Member(sessionId, name, avatarId, host, System.currentTimeMillis());
+        sessions.put(sessionId, new Presence(roomId, member));
+        room.get().markOccupied();
+        broadcastMembers(roomId);
+    }
+
+    public List<Member> members(String roomId) {
+        return sessions.values().stream()
+                .filter(presence -> presence.roomId().equals(roomId))
+                .map(Presence::member)
+                // Host first, then in arrival order, so the list does not reshuffle on every change.
+                .sorted(Comparator.comparing(Member::host).reversed().thenComparingLong(Member::joinedAt))
+                .toList();
+    }
+
     public int count(String roomId) {
-        return (int) subscriptions.values().stream()
-                .filter(subscription -> roomId.equals(subscription.roomId()))
-                .map(Subscription::sessionId)
-                .distinct()
+        return (int) sessions.values().stream()
+                .filter(presence -> presence.roomId().equals(roomId))
                 .count();
     }
 
-    @EventListener
-    public void onSubscribe(SessionSubscribeEvent event) {
-        StompHeaderAccessor headers = StompHeaderAccessor.wrap(event.getMessage());
-        String destination = headers.getDestination();
-        if (destination == null) {
-            return;
-        }
-        Matcher matcher = PLAYBACK_TOPIC.matcher(destination);
-        if (!matcher.matches() || rooms.find(matcher.group(1)).isEmpty()) {
-            return;
-        }
-        String roomId = matcher.group(1);
-        subscriptions.put(key(headers.getSessionId(), headers.getSubscriptionId()),
-                new Subscription(roomId, headers.getSessionId()));
-        broadcastCount(roomId);
-    }
-
-    @EventListener
-    public void onUnsubscribe(SessionUnsubscribeEvent event) {
-        StompHeaderAccessor headers = StompHeaderAccessor.wrap(event.getMessage());
-        Subscription subscription = subscriptions.remove(key(headers.getSessionId(), headers.getSubscriptionId()));
-        if (subscription != null) {
-            broadcastCount(subscription.roomId());
-        }
+    /** The member behind a STOMP session, used to attribute chat without trusting the payload. */
+    public Optional<Member> member(String sessionId) {
+        return Optional.ofNullable(sessions.get(sessionId)).map(Presence::member);
     }
 
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
-        String prefix = event.getSessionId() + ":";
-        Set<String> affectedRooms = new HashSet<>();
-        subscriptions.entrySet().removeIf(entry -> {
-            if (entry.getKey().startsWith(prefix)) {
-                affectedRooms.add(entry.getValue().roomId());
-                return true;
-            }
-            return false;
-        });
-        affectedRooms.forEach(this::broadcastCount);
+        Presence presence = sessions.remove(event.getSessionId());
+        if (presence == null) {
+            return;
+        }
+        // Start the empty-room clock from the moment the last member leaves.
+        rooms.find(presence.roomId()).ifPresent(Room::markOccupied);
+        broadcastMembers(presence.roomId());
     }
 
-    private void broadcastCount(String roomId) {
+    private void broadcastMembers(String roomId) {
         CompletableFuture.runAsync(
-                () -> messaging.convertAndSend(RoomTopics.listeners(roomId), count(roomId)),
+                () -> messaging.convertAndSend(RoomTopics.members(roomId), members(roomId)),
                 CompletableFuture.delayedExecutor(BROADCAST_DELAY_MS, TimeUnit.MILLISECONDS));
     }
 
-    private static String key(String sessionId, String subscriptionId) {
-        return sessionId + ":" + subscriptionId;
-    }
-
-    private record Subscription(String roomId, String sessionId) {
+    private record Presence(String roomId, Member member) {
     }
 }

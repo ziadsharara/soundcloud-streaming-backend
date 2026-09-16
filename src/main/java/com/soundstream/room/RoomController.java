@@ -37,21 +37,21 @@ public class RoomController {
     @GetMapping
     public List<RoomSummary> list() {
         return rooms.list().stream()
-                .map(room -> RoomSummary.of(room, presence.count(room.getId())))
+                .map(room -> RoomSummary.of(room, presence.members(room.getId())))
                 .toList();
     }
 
     @GetMapping("/{id}")
     public RoomSummary get(@PathVariable String id) {
         Room room = findOr404(id);
-        return RoomSummary.of(room, presence.count(id));
+        return RoomSummary.of(room, presence.members(id));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public CreateRoomResponse create(@Valid @RequestBody CreateRoomRequest request) {
-        Room room = rooms.create(request.name().strip(), request.hostName().strip());
-        return new CreateRoomResponse(RoomSummary.of(room, 0), room.getHostToken());
+        Room room = rooms.create(request.name().strip(), request.hostName().strip(), request.hostAvatarId());
+        return new CreateRoomResponse(RoomSummary.of(room, List.of()), room.getHostToken());
     }
 
     @DeleteMapping("/{id}")
@@ -62,7 +62,7 @@ public class RoomController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the host can end this stream");
         }
         rooms.remove(id);
-        Object payload = Map.of("roomId", id);
+        Object payload = Map.of("roomId", id, "reason", "host");
         messaging.convertAndSend(RoomTopics.closed(id), payload);
     }
 
