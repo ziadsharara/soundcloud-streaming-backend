@@ -18,8 +18,20 @@ class ProviderTest {
     }
 
     @Test
+    void recognisesYouTubeMusicLinksInEveryShareShape() {
+        assertThat(Provider.detect("https://music.youtube.com/watch?v=dQw4w9WgXcQ"))
+                .contains(Provider.YOUTUBE_MUSIC);
+        assertThat(Provider.detect("https://music.youtube.com/playlist?list=PLabc123"))
+                .contains(Provider.YOUTUBE_MUSIC);
+        assertThat(Provider.detect("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+                .contains(Provider.YOUTUBE_MUSIC);
+        assertThat(Provider.detect("https://youtu.be/dQw4w9WgXcQ")).contains(Provider.YOUTUBE_MUSIC);
+    }
+
+    @Test
     void reportsHowFarEachServiceCanBeSynced() {
         assertThat(Provider.SOUNDCLOUD.sync()).isEqualTo(Provider.Sync.FULL);
+        assertThat(Provider.YOUTUBE_MUSIC.sync()).isEqualTo(Provider.Sync.FULL);
         assertThat(Provider.SPOTIFY.sync()).isEqualTo(Provider.Sync.PREVIEW);
         assertThat(Provider.ANGHAMI.sync()).isEqualTo(Provider.Sync.NONE);
     }

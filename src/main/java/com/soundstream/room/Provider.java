@@ -1,6 +1,7 @@
 package com.soundstream.room;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -9,15 +10,23 @@ import java.util.regex.Pattern;
 /**
  * A music source SoundStream accepts links from.
  *
- * <p>Only SoundCloud can be kept in true sync for free: its widget plays full tracks and exposes
- * position control. Spotify's embed answers play/pause/seek but starts preview playback, and
- * Anghami publishes no player API at all, so its links are shared rather than synced.
+ * <p>How closely each one can be synced is decided by the service, not by us:
+ * SoundCloud and YouTube expose real player APIs, Spotify's embed answers commands but plays a
+ * preview, and Anghami publishes no player API at all.
+ *
+ * <p>YOUTUBE_MUSIC covers music.youtube.com and ordinary youtube.com links alike: plenty of songs
+ * live on YouTube proper, and both share the same video ids and the same player API.
  */
 public enum Provider {
 
     SOUNDCLOUD(
             List.of("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com"),
             null,
+            Sync.FULL),
+
+    YOUTUBE_MUSIC(
+            List.of("music.youtube.com", "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"),
+            Pattern.compile("^/(watch|playlist)/?$|^/[A-Za-z0-9_-]{5,}/?$"),
             Sync.FULL),
 
     SPOTIFY(
@@ -36,7 +45,7 @@ public enum Provider {
         FULL,
         /** Controllable, but the embed plays a short preview for most listeners. */
         PREVIEW,
-        /** No player API: the link is shared, everyone plays it themselves. */
+        /** No player API: everyone plays it themselves. */
         NONE
     }
 
@@ -75,7 +84,7 @@ public enum Provider {
             return Optional.empty();
         }
         String hostname = host.toLowerCase(Locale.ROOT);
-        return java.util.Arrays.stream(values())
+        return Arrays.stream(values())
                 .filter(provider -> provider.hosts.contains(hostname))
                 .filter(provider -> provider.path == null || provider.path.matcher(path).matches())
                 .findFirst();
