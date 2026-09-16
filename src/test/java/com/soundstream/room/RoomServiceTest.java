@@ -43,23 +43,7 @@ class RoomServiceTest {
         assertThat(state.get().positionMs()).isEqualTo(42_000);
         assertThat(state.get().serverTime()).isPositive();
         assertThat(state.get().provider()).isEqualTo(Provider.SOUNDCLOUD);
-        assertThat(state.get().sync()).isEqualTo(Provider.Sync.FULL);
         assertThat(room.getPlayback()).isEqualTo(state.get());
-    }
-
-    @Test
-    void labelsSpotifyAsPreviewOnlyAndAnghamiAsUnsynced() {
-        Room room = service.create("Room", "Host", "fox");
-
-        var spotify = service.updatePlayback(room.getId(), new PlaybackUpdate(room.getHostToken(),
-                "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT", "Song", "Artist", "", true, 0));
-        var anghami = service.updatePlayback(room.getId(), new PlaybackUpdate(room.getHostToken(),
-                "https://play.anghami.com/song/1234567", "Song", "Artist", "", true, 0));
-
-        assertThat(spotify).get().extracting(PlaybackState::provider, PlaybackState::sync)
-                .containsExactly(Provider.SPOTIFY, Provider.Sync.PREVIEW);
-        assertThat(anghami).get().extracting(PlaybackState::provider, PlaybackState::sync)
-                .containsExactly(Provider.ANGHAMI, Provider.Sync.NONE);
     }
 
     @Test
@@ -94,9 +78,9 @@ class RoomServiceTest {
     }
 
     @Test
-    void acceptsQueueUpdatesFromTheHostAcrossProviders() {
+    void acceptsQueueUpdatesFromTheHostAcrossBothSources() {
         Room room = service.create("Room", "Host", "fox");
-        List<String> tracks = List.of(TRACK, "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M");
+        List<String> tracks = List.of(TRACK, "https://music.youtube.com/watch?v=dQw4w9WgXcQ");
 
         var state = service.updateQueue(room.getId(), new QueueUpdate(room.getHostToken(), tracks, 0));
 

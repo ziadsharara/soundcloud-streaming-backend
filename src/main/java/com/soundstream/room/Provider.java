@@ -10,9 +10,9 @@ import java.util.regex.Pattern;
 /**
  * A music source SoundStream accepts links from.
  *
- * <p>How closely each one can be synced is decided by the service, not by us:
- * SoundCloud and YouTube expose real player APIs, Spotify's embed answers commands but plays a
- * preview, and Anghami publishes no player API at all.
+ * <p>Both publish real player APIs, so every room stays in true sync. Services whose embeds cannot
+ * be driven — Spotify, which only ever plays a preview, and Anghami, which exposes no player at
+ * all — were removed rather than shipped as a worse experience wearing the same badge.
  *
  * <p>YOUTUBE_MUSIC covers music.youtube.com and ordinary youtube.com links alike: plenty of songs
  * live on YouTube proper, and both share the same video ids and the same player API.
@@ -21,46 +21,18 @@ public enum Provider {
 
     SOUNDCLOUD(
             List.of("soundcloud.com", "www.soundcloud.com", "m.soundcloud.com", "on.soundcloud.com"),
-            null,
-            Sync.FULL),
+            null),
 
     YOUTUBE_MUSIC(
             List.of("music.youtube.com", "youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"),
-            Pattern.compile("^/(watch|playlist)/?$|^/[A-Za-z0-9_-]{5,}/?$"),
-            Sync.FULL),
-
-    SPOTIFY(
-            List.of("open.spotify.com", "play.spotify.com", "spotify.link"),
-            Pattern.compile("^/(intl-[a-z-]+/)?(track|album|playlist|episode)/[A-Za-z0-9]+/?$|^/[A-Za-z0-9]+/?$"),
-            Sync.PREVIEW),
-
-    ANGHAMI(
-            List.of("anghami.com", "www.anghami.com", "play.anghami.com", "open.anghami.com"),
-            null,
-            Sync.NONE);
-
-    /** How closely listeners can be held to the host on this provider. */
-    public enum Sync {
-        /** Full tracks, position-accurate. */
-        FULL,
-        /** Controllable, but the embed plays a short preview for most listeners. */
-        PREVIEW,
-        /** No player API: everyone plays it themselves. */
-        NONE
-    }
+            Pattern.compile("^/(watch|playlist)/?$|^/[A-Za-z0-9_-]{5,}/?$"));
 
     private final List<String> hosts;
     private final Pattern path;
-    private final Sync sync;
 
-    Provider(List<String> hosts, Pattern path, Sync sync) {
+    Provider(List<String> hosts, Pattern path) {
         this.hosts = hosts;
         this.path = path;
-        this.sync = sync;
-    }
-
-    public Sync sync() {
-        return sync;
     }
 
     /** Identifies the provider of a share URL, or empty if it is not a link we accept. */

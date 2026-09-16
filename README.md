@@ -9,20 +9,22 @@ Spring Boot API and STOMP/WebSocket broker for synchronized listening rooms.
 - Members with a name and a drawn avatar, tracked by STOMP session.
 - A shared upcoming queue and room chat (text and stickers) over WebSockets.
 - Recent chat history for people who join after the conversation starts.
-- Link validation for SoundCloud, Spotify and Anghami, each tagged with how far it can be synced.
+- Link validation for SoundCloud, YouTube Music and YouTube.
 - A scheduled sweep that closes rooms nobody is in.
 - Docker image with a non-root runtime user and health check.
 
-## Sources and sync
+## Sources
 
-The backend never touches audio; it relays room state, and tells clients what to expect from each
-service:
+The backend never touches audio; it relays room state and validates that a link points at a service
+we can actually drive:
 
-| Provider | `sync` | Meaning |
-|---|---|---|
-| `SOUNDCLOUD` | `FULL` | Full tracks, position-accurate |
-| `SPOTIFY` | `PREVIEW` | Controllable, but the embed plays a ~30s preview |
-| `ANGHAMI` | `NONE` | No player API; the link is shared, not synced |
+| Provider | Hosts |
+|---|---|
+| `SOUNDCLOUD` | soundcloud.com, on.soundcloud.com and friends |
+| `YOUTUBE_MUSIC` | music.youtube.com, youtube.com, youtu.be |
+
+Both expose real player APIs, so every room stays in true sync. Spotify (embeds only play a ~30s
+preview) and Anghami (no player API) were removed rather than shipped as a worse experience.
 
 Chat is attributed from the sender's STOMP session, never from the message body, so a message
 cannot claim someone else's name or avatar.
@@ -55,7 +57,7 @@ docker compose up --build
 The grace period exists so a host who reloads, loses Wi-Fi, or switches network comes back to the
 same room and the same code.
 
-No SoundCloud, Spotify or Anghami credentials are required. Rooms are in memory and are
+No API credentials are required. Rooms are in memory and are
 intentionally cleared on restart; use Redis or a database before scaling beyond one instance.
 
 ## Verify

@@ -73,7 +73,6 @@ public class RoomService {
         PlaybackState state = new PlaybackState(
                 update.trackUrl().strip(),
                 provider.get(),
-                provider.get().sync(),
                 clip(update.title(), 200),
                 clip(update.artist(), 100),
                 artwork,
