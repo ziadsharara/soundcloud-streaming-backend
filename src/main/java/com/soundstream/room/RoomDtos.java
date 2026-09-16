@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Wire formats shared by the REST API and the STOMP endpoints.
@@ -33,18 +34,23 @@ public final class RoomDtos {
             PlaybackState playback,
             QueueState queue,
             List<ChatMessage> chat,
+            Map<String, MemberReceipt> receipts,
             long createdAt,
             long serverNow) {
 
         static RoomSummary of(Room room, List<Member> members) {
             return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
                     members.size(), members, room.getPlayback(), room.getQueue(), room.getChatHistory(),
-                    room.getCreatedAt(), System.currentTimeMillis());
+                    room.getReceipts(), room.getCreatedAt(), System.currentTimeMillis());
         }
     }
 
-    /** Sent once per connection, after subscribing, to put a name and face in the room. */
-    public record JoinRequest(String hostToken, String name, String avatarId) {
+    /**
+     * Sent once per connection, after subscribing, to put a name and face in the room.
+     * {@code memberId} is the browser's own stable id, so a person keeps one identity across
+     * reconnects and tabs — which is what makes read receipts add up to a person rather than a socket.
+     */
+    public record JoinRequest(String hostToken, String memberId, String name, String avatarId) {
     }
 
     /** Sent by the host's browser whenever its player changes state. */
@@ -76,5 +82,13 @@ public final class RoomDtos {
             String stickerId,
             boolean host,
             long serverTime) {
+    }
+
+    /** "I have received (or read) every message up to this moment." */
+    public record ReceiptRequest(boolean read, long throughServerTime) {
+    }
+
+    /** How far one member has got: the two timestamps the ticks are computed from. */
+    public record MemberReceipt(long deliveredAt, long readAt) {
     }
 }

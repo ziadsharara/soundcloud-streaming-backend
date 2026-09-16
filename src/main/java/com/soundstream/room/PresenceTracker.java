@@ -5,7 +5,9 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,8 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Who is in each room. A browser announces itself on /app/rooms/{id}/join once its
- * subscriptions are in place, and is dropped automatically when the socket closes.
+ * Who is in each room, and which of them actually have the music playing.
+ *
+ * A browser announces itself on /app/rooms/{id}/join once its subscriptions are in place, reports
+ * whether its player is running on /app/rooms/{id}/status, and is dropped when the socket closes.
  */
 @Component
 public class PresenceTracker {
@@ -37,30 +41,44 @@ public class PresenceTracker {
     }
 
     /** Places a session in a room, replacing any earlier identity it announced. */
-    public void join(String roomId, String sessionId, String name, String avatarId, boolean host) {
+    public void join(String roomId, String sessionId, String memberId, String name, String avatarId, boolean host) {
         Optional<Room> room = rooms.find(roomId);
         if (room.isEmpty() || sessionId == null) {
             return;
         }
-        Member member = new Member(sessionId, name, avatarId, host, System.currentTimeMillis());
+        Member member = new Member(memberId, name, avatarId, host, false, System.currentTimeMillis());
         sessions.put(sessionId, new Presence(roomId, member));
         room.get().markOccupied();
         broadcastMembers(roomId);
     }
 
+    /** Records whether this session's player is actually playing, in step with the host. */
+    public void setListening(String sessionId, boolean listening) {
+        Presence presence = sessions.get(sessionId);
+        if (presence == null || presence.member().listening() == listening) {
+            return;
+        }
+        sessions.put(sessionId, new Presence(presence.roomId(), presence.member().withListening(listening)));
+        broadcastMembers(presence.roomId());
+    }
+
+    /**
+     * One entry per person, not per socket: someone with the room open in two tabs is one member,
+     * and counts as listening if any of their tabs is playing.
+     */
     public List<Member> members(String roomId) {
-        return sessions.values().stream()
+        Map<String, Member> byPerson = new LinkedHashMap<>();
+        sessions.values().stream()
                 .filter(presence -> presence.roomId().equals(roomId))
                 .map(Presence::member)
-                // Host first, then in arrival order, so the list does not reshuffle on every change.
                 .sorted(Comparator.comparing(Member::host).reversed().thenComparingLong(Member::joinedAt))
-                .toList();
+                .forEach(member -> byPerson.merge(member.id(), member,
+                        (kept, other) -> kept.listening() || other.listening() ? kept.withListening(true) : kept));
+        return List.copyOf(new ArrayList<>(byPerson.values()));
     }
 
     public int count(String roomId) {
-        return (int) sessions.values().stream()
-                .filter(presence -> presence.roomId().equals(roomId))
-                .count();
+        return members(roomId).size();
     }
 
     /** The member behind a STOMP session, used to attribute chat without trusting the payload. */

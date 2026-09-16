@@ -26,7 +26,7 @@ class RoomCleanupServiceTest {
     @Test
     void keepsRoomsThatStillHaveSomebodyInThem() {
         Room room = rooms.create("Busy", "Host", "fox");
-        presence.join(room.getId(), "session-1", "Guest", "fox", false);
+        presence.join(room.getId(), "session-1", "member-0001", "Guest", "fox", false);
 
         cleanupWithGrace(Duration.ZERO).removeEmptyRooms();
 
