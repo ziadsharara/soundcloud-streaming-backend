@@ -17,10 +17,18 @@ public final class RoomDtos {
     public record CreateRoomRequest(
             @NotBlank @Size(max = 60) String name,
             @NotBlank @Size(max = 40) String hostName,
-            @Size(max = 24) String hostAvatarId) {
+            @Size(max = 24) String hostAvatarId,
+            @Size(min = 4, max = 100) String password) {
     }
 
-    public record CreateRoomResponse(RoomSummary room, String hostToken) {
+    /** The host gets both secrets at once: one to control the room, one to let people in. */
+    public record CreateRoomResponse(RoomSummary room, String hostToken, String accessKey) {
+    }
+
+    public record UnlockRequest(String password) {
+    }
+
+    public record UnlockResponse(String accessKey) {
     }
 
     /** Public view of a room — never includes the host token. */
@@ -35,13 +43,25 @@ public final class RoomDtos {
             QueueState queue,
             List<ChatMessage> chat,
             Map<String, MemberReceipt> receipts,
+            boolean privateRoom,
+            boolean locked,
             long createdAt,
             long serverNow) {
 
         static RoomSummary of(Room room, List<Member> members) {
             return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
                     members.size(), members, room.getPlayback(), room.getQueue(), room.getChatHistory(),
-                    room.getReceipts(), room.getCreatedAt(), System.currentTimeMillis());
+                    room.getReceipts(), room.isPrivate(), false, room.getCreatedAt(), System.currentTimeMillis());
+        }
+
+        /**
+         * What a private room shows before the password: enough to render the door — its name and
+         * who is hosting — and nothing that is going on inside it.
+         */
+        static RoomSummary locked(Room room) {
+            return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
+                    0, List.of(), null, null, List.of(), Map.of(), true, true,
+                    room.getCreatedAt(), System.currentTimeMillis());
         }
     }
 

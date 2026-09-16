@@ -1,5 +1,6 @@
 package com.soundstream.config;
 
+import com.soundstream.room.RoomService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -17,9 +18,11 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final String[] allowedOrigins;
+    private final RoomService rooms;
 
-    public WebSocketConfig(@Value("${app.cors.allowed-origins}") String[] allowedOrigins) {
+    public WebSocketConfig(@Value("${app.cors.allowed-origins}") String[] allowedOrigins, RoomService rooms) {
         this.allowedOrigins = allowedOrigins;
+        this.rooms = rooms;
     }
 
     @Override
@@ -37,6 +40,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(new BrokerDestinationGuard());
+        registration.interceptors(new BrokerDestinationGuard(), new RoomAccessGuard(rooms));
     }
 }

@@ -31,10 +31,17 @@ public class RoomService {
     private final SecureRandom random = new SecureRandom();
 
     public Room create(String name, String hostName, String hostAvatarId) {
+        return create(name, hostName, hostAvatarId, null);
+    }
+
+    /** A blank password makes a public room; anything else locks it. */
+    public Room create(String name, String hostName, String hostAvatarId, String password) {
         String token = UUID.randomUUID().toString();
+        String passwordHash = password == null || password.isBlank() ? "" : RoomPassword.hash(password.strip());
+        String accessKey = RoomPassword.newAccessKey();
         while (true) {
             Room room = new Room(newId(), name, hostName, avatarOrDefault(hostAvatarId), token,
-                    System.currentTimeMillis());
+                    passwordHash, accessKey, System.currentTimeMillis());
             if (rooms.putIfAbsent(room.getId(), room) == null) {
                 return room;
             }
@@ -43,6 +50,11 @@ public class RoomService {
 
     public Optional<Room> find(String id) {
         return Optional.ofNullable(rooms.get(id));
+    }
+
+    /** Only public rooms are discoverable; a private one is reachable by code and password alone. */
+    public List<Room> listPublic() {
+        return list().stream().filter(room -> !room.isPrivate()).toList();
     }
 
     public List<Room> list() {

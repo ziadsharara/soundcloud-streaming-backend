@@ -21,6 +21,10 @@ public class Room {
     private final String hostName;
     private final String hostAvatarId;
     private final String hostToken;
+    /** Empty for a public room; a PBKDF2 hash when the host set a password. */
+    private final String passwordHash;
+    /** Handed out once someone proves they know the password, and required to join or subscribe. */
+    private final String accessKey;
     private final long createdAt;
     private final ArrayDeque<ChatMessage> chatHistory = new ArrayDeque<>();
     /**
@@ -34,12 +38,15 @@ public class Room {
     /** When someone was last here; the cleanup sweep measures emptiness from this. */
     private volatile long lastOccupiedAt;
 
-    public Room(String id, String name, String hostName, String hostAvatarId, String hostToken, long createdAt) {
+    public Room(String id, String name, String hostName, String hostAvatarId, String hostToken,
+                String passwordHash, String accessKey, long createdAt) {
         this.id = id;
         this.name = name;
         this.hostName = hostName;
         this.hostAvatarId = hostAvatarId;
         this.hostToken = hostToken;
+        this.passwordHash = passwordHash == null ? "" : passwordHash;
+        this.accessKey = accessKey;
         this.createdAt = createdAt;
         this.lastOccupiedAt = createdAt;
         this.queue = new QueueState(List.of(), -1, createdAt);
@@ -70,6 +77,25 @@ public class Room {
 
     public String getHostToken() {
         return hostToken;
+    }
+
+    public boolean isPrivate() {
+        return !passwordHash.isEmpty();
+    }
+
+    public boolean matchesPassword(String password) {
+        return isPrivate() && RoomPassword.matches(password, passwordHash);
+    }
+
+    public String getAccessKey() {
+        return accessKey;
+    }
+
+    /** A public room is open to anyone with the code; a private one needs the key. */
+    public boolean allows(String key) {
+        return !isPrivate() || (key != null && MessageDigest.isEqual(
+                accessKey.getBytes(StandardCharsets.UTF_8),
+                key.getBytes(StandardCharsets.UTF_8)));
     }
 
     public long getCreatedAt() {
