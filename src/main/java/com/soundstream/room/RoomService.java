@@ -2,6 +2,7 @@ package com.soundstream.room;
 
 import com.soundstream.room.RoomDtos.PlaybackUpdate;
 import com.soundstream.room.RoomDtos.QueueUpdate;
+import com.soundstream.room.RoomDtos.ReactionUpdate;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -34,13 +35,17 @@ public class RoomService {
         return create(name, hostName, hostAvatarId, null);
     }
 
-    /** A blank password makes a public room; anything else locks it. */
     public Room create(String name, String hostName, String hostAvatarId, String password) {
+        return create(name, RoomKind.MUSIC, hostName, hostAvatarId, password);
+    }
+
+    /** A blank password makes a public room; anything else locks it. */
+    public Room create(String name, RoomKind kind, String hostName, String hostAvatarId, String password) {
         String token = UUID.randomUUID().toString();
         String passwordHash = password == null || password.isBlank() ? "" : RoomPassword.hash(password.strip());
         String accessKey = RoomPassword.newAccessKey();
         while (true) {
-            Room room = new Room(newId(), name, hostName, avatarOrDefault(hostAvatarId), token,
+            Room room = new Room(newId(), name, kind, hostName, avatarOrDefault(hostAvatarId), token,
                     passwordHash, accessKey, System.currentTimeMillis());
             if (rooms.putIfAbsent(room.getId(), room) == null) {
                 return room;
@@ -73,7 +78,7 @@ public class RoomService {
      */
     public Optional<PlaybackState> updatePlayback(String roomId, PlaybackUpdate update) {
         Room room = rooms.get(roomId);
-        if (room == null || update == null || !room.isHost(update.hostToken())) {
+        if (room == null || update == null || !room.isHost(update.hostToken()) || !room.getKind().playsMusic()) {
             return Optional.empty();
         }
         Optional<Provider> provider = Provider.detect(update.trackUrl());
@@ -98,7 +103,7 @@ public class RoomService {
     /** Applies a bounded, host-authorized queue update. */
     public Optional<QueueState> updateQueue(String roomId, QueueUpdate update) {
         Room room = rooms.get(roomId);
-        if (room == null || update == null || !room.isHost(update.hostToken())
+        if (room == null || update == null || !room.isHost(update.hostToken()) || !room.getKind().playsMusic()
                 || update.trackUrls() == null || update.trackUrls().size() > MAX_QUEUE_SIZE) {
             return Optional.empty();
         }
@@ -115,6 +120,32 @@ public class RoomService {
         QueueState state = new QueueState(List.copyOf(trackUrls), activeIndex, System.currentTimeMillis());
         room.setQueue(state);
         return Optional.of(state);
+    }
+
+    /**
+     * Adds one track to the end of the queue on behalf of anyone in the room.
+     *
+     * Removing, reordering and choosing what plays stay with the host, in {@link #updateQueue};
+     * this is the one queue change a guest can make.
+     */
+    public Optional<QueueState> addToQueue(String roomId, String trackUrl) {
+        Room room = rooms.get(roomId);
+        if (room == null || !room.getKind().playsMusic() || trackUrl == null) {
+            return Optional.empty();
+        }
+        String url = trackUrl.strip();
+        return Provider.isSupported(url) ? room.addTrack(url) : Optional.empty();
+    }
+
+    /** Toggles one member's reaction to one message, if the emoji is one the room allows. */
+    public Optional<ReactionUpdate> react(String roomId, String messageId, String emoji, String memberId) {
+        Room room = rooms.get(roomId);
+        if (room == null) {
+            return Optional.empty();
+        }
+        return Reactions.canonical(emoji)
+                .flatMap(allowed -> room.toggleReaction(messageId, allowed, memberId))
+                .map(reactions -> new ReactionUpdate(messageId, reactions));
     }
 
     static String clip(String value, int max) {

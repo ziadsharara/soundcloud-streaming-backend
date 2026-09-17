@@ -4,7 +4,9 @@ import com.soundstream.room.RoomDtos.ChatMessage;
 import com.soundstream.room.RoomDtos.ChatRequest;
 import com.soundstream.room.RoomDtos.JoinRequest;
 import com.soundstream.room.RoomDtos.PlaybackUpdate;
+import com.soundstream.room.RoomDtos.QueueAddRequest;
 import com.soundstream.room.RoomDtos.QueueUpdate;
+import com.soundstream.room.RoomDtos.ReactionRequest;
 import com.soundstream.room.RoomDtos.ReceiptRequest;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.Header;
@@ -23,6 +25,7 @@ import java.util.regex.Pattern;
 public class StreamController {
 
     private static final String KIND_STICKER = "STICKER";
+    private static final String KIND_ATTACHMENT = "ATTACHMENT";
     private static final String KIND_TEXT = "TEXT";
     /** A browser-generated id; anything else falls back to the socket so a member still appears. */
     private static final Pattern MEMBER_ID = Pattern.compile("[A-Za-z0-9_-]{8,64}");
@@ -30,11 +33,14 @@ public class StreamController {
     private final RoomService rooms;
     private final PresenceTracker presence;
     private final SimpMessagingTemplate messaging;
+    private final AttachmentStore attachments;
 
-    public StreamController(RoomService rooms, PresenceTracker presence, SimpMessagingTemplate messaging) {
+    public StreamController(RoomService rooms, PresenceTracker presence, SimpMessagingTemplate messaging,
+                            AttachmentStore attachments) {
         this.rooms = rooms;
         this.presence = presence;
         this.messaging = messaging;
+        this.attachments = attachments;
     }
 
     @MessageMapping("/rooms/{roomId}/join")
@@ -74,6 +80,20 @@ public class StreamController {
                 .ifPresent(state -> messaging.convertAndSend(RoomTopics.queue(roomId), state));
     }
 
+    /**
+     * Anyone in the room can put a track on the end of the queue. Taking one off, reordering and
+     * choosing what plays next remain the host's, on the mapping above.
+     */
+    @MessageMapping("/rooms/{roomId}/queue/add")
+    public void addToQueue(@DestinationVariable String roomId, QueueAddRequest request,
+                           @Header("simpSessionId") String sessionId) {
+        if (request == null || presence.member(sessionId).isEmpty()) {
+            return;
+        }
+        rooms.addToQueue(roomId, request.trackUrl())
+                .ifPresent(state -> messaging.convertAndSend(RoomTopics.queue(roomId), state));
+    }
+
     @MessageMapping("/rooms/{roomId}/chat")
     public void chat(@DestinationVariable String roomId, ChatRequest request,
                      @Header("simpSessionId") String sessionId) {
@@ -89,12 +109,18 @@ public class StreamController {
                     .orElse(host ? room.getHostAvatarId() : RoomService.DEFAULT_AVATAR);
             String memberId = member.map(Member::id).orElse(sessionId);
 
-            ChatMessage message = KIND_STICKER.equalsIgnoreCase(request.kind())
-                    ? sticker(request, memberId, author, avatar, host)
-                    : text(request, memberId, author, avatar, host);
+            ChatMessage message;
+            if (KIND_STICKER.equalsIgnoreCase(request.kind())) {
+                message = sticker(request, memberId, author, avatar, host);
+            } else if (KIND_ATTACHMENT.equalsIgnoreCase(request.kind())) {
+                message = attachment(roomId, request, memberId, author, avatar, host);
+            } else {
+                message = text(request, memberId, author, avatar, host);
+            }
             if (message == null) {
                 return;
             }
+            room.markOccupied();
             room.addChatMessage(message);
             messaging.convertAndSend(RoomTopics.chat(roomId), message);
         });
@@ -116,6 +142,18 @@ public class StreamController {
                 new TypingNotice(member.id(), member.name(), status.typing())));
     }
 
+    /** An emoji under a message. The reactor is the session's member, never the payload's. */
+    @MessageMapping("/rooms/{roomId}/reaction")
+    public void reaction(@DestinationVariable String roomId, ReactionRequest request,
+                         @Header("simpSessionId") String sessionId) {
+        if (request == null) {
+            return;
+        }
+        presence.member(sessionId)
+                .flatMap(member -> rooms.react(roomId, request.messageId(), request.emoji(), member.id()))
+                .ifPresent(update -> messaging.convertAndSend(RoomTopics.reactions(roomId), update));
+    }
+
     /** Delivery and read acknowledgements, which become the ticks beside a sent message. */
     @MessageMapping("/rooms/{roomId}/receipt")
     public void receipt(@DestinationVariable String roomId, ReceiptRequest request,
@@ -134,13 +172,26 @@ public class StreamController {
         String body = RoomService.clip(request.text(), 500);
         return body.isEmpty() ? null
                 : new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
-                        KIND_TEXT, body, "", host, System.currentTimeMillis());
+                        KIND_TEXT, body, "", null, host, System.currentTimeMillis());
     }
 
     private ChatMessage sticker(ChatRequest request, String memberId, String author, String avatar, boolean host) {
         return RoomService.sticker(request.stickerId())
                 .map(id -> new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
-                        KIND_STICKER, "", id, host, System.currentTimeMillis()))
+                        KIND_STICKER, "", id, null, host, System.currentTimeMillis()))
+                .orElse(null);
+    }
+
+    /**
+     * A message about something already uploaded to this room. The file has to exist here — an id
+     * from another room, or one that was never uploaded, produces no message at all.
+     */
+    private ChatMessage attachment(String roomId, ChatRequest request, String memberId, String author,
+                                   String avatar, boolean host) {
+        return attachments.find(roomId, request.attachmentId() == null ? "" : request.attachmentId())
+                .map(found -> new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
+                        KIND_ATTACHMENT, RoomService.clip(request.text(), 500), "", found, host,
+                        System.currentTimeMillis()))
                 .orElse(null);
     }
 

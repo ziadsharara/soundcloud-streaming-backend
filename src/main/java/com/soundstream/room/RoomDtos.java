@@ -14,11 +14,13 @@ public final class RoomDtos {
     private RoomDtos() {
     }
 
+    /** {@code kind} is "CHAT" for a chat-only room; anything else makes the usual music room. */
     public record CreateRoomRequest(
             @NotBlank @Size(max = 60) String name,
             @NotBlank @Size(max = 40) String hostName,
             @Size(max = 24) String hostAvatarId,
-            @Size(min = 4, max = 100) String password) {
+            @Size(min = 4, max = 100) String password,
+            @Size(max = 16) String kind) {
     }
 
     /** The host gets both secrets at once: one to control the room, one to let people in. */
@@ -35,6 +37,7 @@ public final class RoomDtos {
     public record RoomSummary(
             String id,
             String name,
+            RoomKind kind,
             String hostName,
             String hostAvatarId,
             int listeners,
@@ -43,15 +46,17 @@ public final class RoomDtos {
             QueueState queue,
             List<ChatMessage> chat,
             Map<String, MemberReceipt> receipts,
+            Map<String, Map<String, List<String>>> reactions,
             boolean privateRoom,
             boolean locked,
             long createdAt,
             long serverNow) {
 
         static RoomSummary of(Room room, List<Member> members) {
-            return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
-                    members.size(), members, room.getPlayback(), room.getQueue(), room.getChatHistory(),
-                    room.getReceipts(), room.isPrivate(), false, room.getCreatedAt(), System.currentTimeMillis());
+            return new RoomSummary(room.getId(), room.getName(), room.getKind(), room.getHostName(),
+                    room.getHostAvatarId(), members.size(), members, room.getPlayback(), room.getQueue(),
+                    room.getChatHistory(), room.getReceipts(), room.getReactions(), room.isPrivate(), false,
+                    room.getCreatedAt(), System.currentTimeMillis());
         }
 
         /**
@@ -59,8 +64,8 @@ public final class RoomDtos {
          * who is hosting — and nothing that is going on inside it.
          */
         static RoomSummary locked(Room room) {
-            return new RoomSummary(room.getId(), room.getName(), room.getHostName(), room.getHostAvatarId(),
-                    0, List.of(), null, null, List.of(), Map.of(), true, true,
+            return new RoomSummary(room.getId(), room.getName(), room.getKind(), room.getHostName(),
+                    room.getHostAvatarId(), 0, List.of(), null, null, List.of(), Map.of(), Map.of(), true, true,
                     room.getCreatedAt(), System.currentTimeMillis());
         }
     }
@@ -84,12 +89,24 @@ public final class RoomDtos {
             long positionMs) {
     }
 
-    /** Sent by the host whenever the upcoming room queue changes. */
+    /** Sent by the host whenever the upcoming room queue changes: reorder, removal, what is playing. */
     public record QueueUpdate(String hostToken, List<String> trackUrls, int activeIndex) {
     }
 
-    /** A chat message is either typed text or one of the drawn stickers. */
-    public record ChatRequest(String hostToken, String kind, String text, String stickerId) {
+    /** "Put this on too" — anyone in the room may add to the end of the queue. */
+    public record QueueAddRequest(String trackUrl) {
+    }
+
+    /** Tapping an emoji under a message; tapping the same one again takes it back. */
+    public record ReactionRequest(String messageId, String emoji) {
+    }
+
+    /** One message's reactions after a change: emoji to the members who chose it. */
+    public record ReactionUpdate(String messageId, Map<String, List<String>> reactions) {
+    }
+
+    /** A chat message is typed text, one of the drawn stickers, or something somebody sent. */
+    public record ChatRequest(String hostToken, String kind, String text, String stickerId, String attachmentId) {
     }
 
     public record ChatMessage(
@@ -100,8 +117,18 @@ public final class RoomDtos {
             String kind,
             String text,
             String stickerId,
+            Attachment attachment,
             boolean host,
             long serverTime) {
+
+        static ChatMessage text(String id, String memberId, String author, String avatarId, String body,
+                                boolean host, long serverTime) {
+            return new ChatMessage(id, memberId, author, avatarId, "TEXT", body, "", null, host, serverTime);
+        }
+    }
+
+    /** What the browser gets back after sending a file, before it posts the message itself. */
+    public record AttachmentResponse(Attachment attachment) {
     }
 
     /** "I have received (or read) every message up to this moment." */

@@ -12,8 +12,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Closes rooms nobody is in. A room is kept for a grace period after the last member leaves so a
- * host who reloads, loses Wi-Fi, or switches networks comes back to the same room and the same code.
+ * A safety net for rooms nobody will ever come back to — not a tidy-up of quiet ones.
+ *
+ * A room belongs to its host: it stays open when the listeners leave, when the host closes the tab,
+ * and overnight, and it ends when the host ends it. This only removes rooms that have had nobody in
+ * them and no traffic for a very long time, so a server that is never restarted does not hold every
+ * room ever made in memory.
  */
 @Service
 public class RoomCleanupService {
@@ -23,13 +27,16 @@ public class RoomCleanupService {
     private final RoomService rooms;
     private final PresenceTracker presence;
     private final SimpMessagingTemplate messaging;
+    private final AttachmentStore attachments;
     private final Duration emptyGrace;
 
     public RoomCleanupService(RoomService rooms, PresenceTracker presence, SimpMessagingTemplate messaging,
-                              @Value("${app.rooms.empty-grace:PT10M}") Duration emptyGrace) {
+                              AttachmentStore attachments,
+                              @Value("${app.rooms.empty-grace:PT24H}") Duration emptyGrace) {
         this.rooms = rooms;
         this.presence = presence;
         this.messaging = messaging;
+        this.attachments = attachments;
         this.emptyGrace = emptyGrace;
     }
 
@@ -38,15 +45,16 @@ public class RoomCleanupService {
         long cutoff = System.currentTimeMillis() - emptyGrace.toMillis();
         List<Room> expired = rooms.list().stream()
                 .filter(room -> presence.count(room.getId()) == 0)
-                // <= so a zero grace period means "close as soon as the room is empty".
+                // <= so a zero grace period, which the tests use, means "as soon as it is empty".
                 .filter(room -> room.getLastOccupiedAt() <= cutoff)
                 .toList();
 
         for (Room room : expired) {
             rooms.remove(room.getId());
-            Object payload = Map.of("roomId", room.getId(), "reason", "empty");
+            attachments.removeRoom(room.getId());
+            Object payload = Map.of("roomId", room.getId(), "reason", "abandoned");
             messaging.convertAndSend(RoomTopics.closed(room.getId()), payload);
-            log.info("Closed empty room {} after {} without members", room.getId(), emptyGrace);
+            log.info("Removed abandoned room {} after {} with nobody in it", room.getId(), emptyGrace);
         }
     }
 }

@@ -6,8 +6,12 @@ import com.soundstream.room.RoomDtos.MemberReceipt;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Room {
@@ -15,9 +19,13 @@ public class Room {
     private static final int MAX_CHAT_HISTORY = 50;
     /** Defensive bound: a long-lived room that many people pass through should not grow forever. */
     private static final int MAX_TRACKED_RECEIPTS = 500;
+    private static final int MAX_QUEUE_SIZE = 100;
+    /** How many different emoji one message can collect, so a single message can't grow forever. */
+    private static final int MAX_EMOJI_PER_MESSAGE = 12;
 
     private final String id;
     private final String name;
+    private final RoomKind kind;
     private final String hostName;
     private final String hostAvatarId;
     private final String hostToken;
@@ -33,15 +41,18 @@ public class Room {
      * to render ticks for the whole history.
      */
     private final Map<String, MemberReceipt> receipts = new ConcurrentHashMap<>();
+    /** message id -> emoji -> the members who put it there. Guarded by the chat lock. */
+    private final Map<String, Map<String, LinkedHashSet<String>>> reactions = new LinkedHashMap<>();
     private volatile PlaybackState playback;
     private volatile QueueState queue;
-    /** When someone was last here; the cleanup sweep measures emptiness from this. */
+    /** When the room was last used; only a room nobody has touched in a long while is swept. */
     private volatile long lastOccupiedAt;
 
-    public Room(String id, String name, String hostName, String hostAvatarId, String hostToken,
+    public Room(String id, String name, RoomKind kind, String hostName, String hostAvatarId, String hostToken,
                 String passwordHash, String accessKey, long createdAt) {
         this.id = id;
         this.name = name;
+        this.kind = kind == null ? RoomKind.MUSIC : kind;
         this.hostName = hostName;
         this.hostAvatarId = hostAvatarId;
         this.hostToken = hostToken;
@@ -65,6 +76,10 @@ public class Room {
 
     public String getName() {
         return name;
+    }
+
+    public RoomKind getKind() {
+        return kind;
     }
 
     public String getHostName() {
@@ -126,15 +141,86 @@ public class Room {
         this.queue = queue;
     }
 
+    /**
+     * Adds one track to the end of the queue. Anyone in the room may do this — the queue is a
+     * shared wishlist — which is why it is the server that appends rather than the host's browser
+     * pushing a whole list and overwriting what a guest just added.
+     *
+     * Returns empty when the track is already queued or the queue is full, so nothing is broadcast.
+     */
+    public synchronized Optional<QueueState> addTrack(String trackUrl) {
+        QueueState current = queue;
+        if (current.trackUrls().size() >= MAX_QUEUE_SIZE || current.trackUrls().contains(trackUrl)) {
+            return Optional.empty();
+        }
+        List<String> next = new ArrayList<>(current.trackUrls());
+        next.add(trackUrl);
+        QueueState state = new QueueState(List.copyOf(next), current.activeIndex(), System.currentTimeMillis());
+        queue = state;
+        return Optional.of(state);
+    }
+
     public synchronized void addChatMessage(ChatMessage message) {
         while (chatHistory.size() >= MAX_CHAT_HISTORY) {
-            chatHistory.removeFirst();
+            ChatMessage dropped = chatHistory.removeFirst();
+            // A message that has scrolled out of history takes its reactions with it.
+            reactions.remove(dropped.id());
         }
         chatHistory.addLast(message);
     }
 
     public synchronized List<ChatMessage> getChatHistory() {
         return List.copyOf(chatHistory);
+    }
+
+    /**
+     * Adds or removes one member's reaction to one message, the way a messaging app does: tapping
+     * the same emoji again takes it back.
+     *
+     * Only messages still in history can be reacted to, so this cannot be used to grow the map with
+     * invented ids. Returns empty when nothing changed.
+     */
+    public synchronized Optional<Map<String, List<String>>> toggleReaction(
+            String messageId, String emoji, String memberId) {
+        if (messageId == null || emoji == null || memberId == null || memberId.isBlank()
+                || chatHistory.stream().noneMatch(message -> messageId.equals(message.id()))) {
+            return Optional.empty();
+        }
+
+        Map<String, LinkedHashSet<String>> byEmoji = reactions.computeIfAbsent(messageId, key -> new LinkedHashMap<>());
+        LinkedHashSet<String> members = byEmoji.get(emoji);
+        if (members != null && members.remove(memberId)) {
+            if (members.isEmpty()) {
+                byEmoji.remove(emoji);
+            }
+        } else {
+            if (members == null && byEmoji.size() >= MAX_EMOJI_PER_MESSAGE) {
+                return Optional.empty();
+            }
+            byEmoji.computeIfAbsent(emoji, key -> new LinkedHashSet<>()).add(memberId);
+        }
+        if (byEmoji.isEmpty()) {
+            reactions.remove(messageId);
+        }
+        return Optional.of(reactionsFor(messageId));
+    }
+
+    /** One message's reactions, as emoji to the members who chose it. */
+    public synchronized Map<String, List<String>> reactionsFor(String messageId) {
+        Map<String, LinkedHashSet<String>> byEmoji = reactions.get(messageId);
+        if (byEmoji == null) {
+            return Map.of();
+        }
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        byEmoji.forEach((emoji, members) -> copy.put(emoji, List.copyOf(members)));
+        return copy;
+    }
+
+    /** Every message's reactions, for the snapshot a browser loads the room with. */
+    public synchronized Map<String, Map<String, List<String>>> getReactions() {
+        Map<String, Map<String, List<String>>> copy = new LinkedHashMap<>();
+        reactions.keySet().forEach(messageId -> copy.put(messageId, reactionsFor(messageId)));
+        return copy;
     }
 
     /**

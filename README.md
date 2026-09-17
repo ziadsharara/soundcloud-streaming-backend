@@ -51,7 +51,8 @@ docker compose up --build
 | `PORT` | HTTP port, defaults to `8080` |
 | `FRONTEND_ORIGINS` | Comma-separated exact frontend origins allowed by CORS |
 | `PUBLIC_FRONTEND_ORIGIN` | Canonical invite-link origin, defaults to `https://soundstreaming.vercel.app` |
-| `ROOM_EMPTY_GRACE` | How long an empty room is kept, ISO-8601, defaults to `PT10M` |
+| `ROOM_EMPTY_GRACE` | How long a room with nobody in it is kept, ISO-8601, defaults to `PT24H`. A room ends when its host ends it; this is only the safety net for rooms nobody returns to |
+| `ATTACHMENT_DIR` | Where voice notes, video notes and files are written; a temporary directory by default. Deleted with the room, and on shutdown |
 | `ROOM_CLEANUP_INTERVAL` | How often the sweep runs, ISO-8601, defaults to `PT1M` |
 
 The grace period exists so a host who reloads, loses Wi-Fi, or switches network comes back to the

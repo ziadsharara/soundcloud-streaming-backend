@@ -25,6 +25,10 @@ public final class RoomTopics {
         return "/topic/rooms/" + roomId + "/typing";
     }
 
+    public static String reactions(String roomId) {
+        return "/topic/rooms/" + roomId + "/reactions";
+    }
+
     public static String receipts(String roomId) {
         return "/topic/rooms/" + roomId + "/receipts";
     }

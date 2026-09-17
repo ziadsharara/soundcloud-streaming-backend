@@ -116,7 +116,7 @@ class RoomServiceTest {
         Room room = service.create("Room", "Host", "fox");
         for (int i = 0; i < 55; i++) {
             room.addChatMessage(new ChatMessage(Integer.toString(i), "session", "Guest", "fox",
-                    "TEXT", "Message " + i, "", false, i));
+                    "TEXT", "Message " + i, "", null, false, i));
         }
 
         assertThat(room.getChatHistory()).hasSize(50);
