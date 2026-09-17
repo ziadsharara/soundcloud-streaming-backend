@@ -115,7 +115,7 @@ class RoomServiceTest {
     void retainsOnlyTheMostRecentFiftyChatMessages() {
         Room room = service.create("Room", "Host", "fox");
         for (int i = 0; i < 55; i++) {
-            room.addChatMessage(new ChatMessage(Integer.toString(i), "session", "Guest", "fox",
+            room.addChatMessage(new ChatMessage(Integer.toString(i), "", "session", "Guest", "fox",
                     "TEXT", "Message " + i, "", null, false, i));
         }
 

@@ -105,12 +105,20 @@ public final class RoomDtos {
     public record ReactionUpdate(String messageId, Map<String, List<String>> reactions) {
     }
 
-    /** A chat message is typed text, one of the drawn stickers, or something somebody sent. */
-    public record ChatRequest(String hostToken, String kind, String text, String stickerId, String attachmentId) {
+    /**
+     * A chat message is typed text, one of the drawn stickers, or something somebody sent.
+     *
+     * {@code clientId} is the sender's own id for this message. It is echoed back untouched so a
+     * browser can show what you sent the instant you send it and then recognise its own message
+     * when it comes back, rather than leaving you watching a round trip.
+     */
+    public record ChatRequest(String hostToken, String kind, String text, String stickerId,
+                              String attachmentId, String clientId) {
     }
 
     public record ChatMessage(
             String id,
+            String clientId,
             String memberId,
             String author,
             String avatarId,
@@ -123,7 +131,7 @@ public final class RoomDtos {
 
         static ChatMessage text(String id, String memberId, String author, String avatarId, String body,
                                 boolean host, long serverTime) {
-            return new ChatMessage(id, memberId, author, avatarId, "TEXT", body, "", null, host, serverTime);
+            return new ChatMessage(id, "", memberId, author, avatarId, "TEXT", body, "", null, host, serverTime);
         }
     }
 

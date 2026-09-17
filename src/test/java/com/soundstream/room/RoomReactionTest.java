@@ -78,7 +78,7 @@ class RoomReactionTest {
     }
 
     private ChatMessage say(String id) {
-        ChatMessage message = new ChatMessage(id, "member-1", "Someone", "bun", "TEXT", "hi", "", null, false,
+        ChatMessage message = new ChatMessage(id, "", "member-1", "Someone", "bun", "TEXT", "hi", "", null, false,
                 System.currentTimeMillis());
         room.addChatMessage(message);
         return message;

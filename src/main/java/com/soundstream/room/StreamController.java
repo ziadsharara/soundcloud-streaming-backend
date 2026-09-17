@@ -29,6 +29,8 @@ public class StreamController {
     private static final String KIND_TEXT = "TEXT";
     /** A browser-generated id; anything else falls back to the socket so a member still appears. */
     private static final Pattern MEMBER_ID = Pattern.compile("[A-Za-z0-9_-]{8,64}");
+    /** The sender's own id for a message, echoed back so their browser can match it up. */
+    private static final Pattern CLIENT_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     private final RoomService rooms;
     private final PresenceTracker presence;
@@ -168,16 +170,22 @@ public class StreamController {
         }));
     }
 
+    /** Echoed back exactly as sent, or dropped if it is not the shape we promised to echo. */
+    private static String clientId(ChatRequest request) {
+        String id = request.clientId();
+        return id != null && CLIENT_ID.matcher(id).matches() ? id : "";
+    }
+
     private ChatMessage text(ChatRequest request, String memberId, String author, String avatar, boolean host) {
         String body = RoomService.clip(request.text(), 500);
         return body.isEmpty() ? null
-                : new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
+                : new ChatMessage(UUID.randomUUID().toString(), clientId(request), memberId, author, avatar,
                         KIND_TEXT, body, "", null, host, System.currentTimeMillis());
     }
 
     private ChatMessage sticker(ChatRequest request, String memberId, String author, String avatar, boolean host) {
         return RoomService.sticker(request.stickerId())
-                .map(id -> new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
+                .map(id -> new ChatMessage(UUID.randomUUID().toString(), clientId(request), memberId, author, avatar,
                         KIND_STICKER, "", id, null, host, System.currentTimeMillis()))
                 .orElse(null);
     }
@@ -189,8 +197,8 @@ public class StreamController {
     private ChatMessage attachment(String roomId, ChatRequest request, String memberId, String author,
                                    String avatar, boolean host) {
         return attachments.find(roomId, request.attachmentId() == null ? "" : request.attachmentId())
-                .map(found -> new ChatMessage(UUID.randomUUID().toString(), memberId, author, avatar,
-                        KIND_ATTACHMENT, RoomService.clip(request.text(), 500), "", found, host,
+                .map(found -> new ChatMessage(UUID.randomUUID().toString(), clientId(request), memberId, author,
+                        avatar, KIND_ATTACHMENT, RoomService.clip(request.text(), 500), "", found, host,
                         System.currentTimeMillis()))
                 .orElse(null);
     }
