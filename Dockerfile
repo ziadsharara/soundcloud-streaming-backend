@@ -3,7 +3,10 @@ WORKDIR /workspace
 COPY .mvn .mvn
 COPY mvnw pom.xml ./
 COPY src src
-RUN --mount=type=cache,target=/root/.m2 ./mvnw -B package
+# Tests run before deployment in CI/local verification. Some restricted container
+# builders block Mockito's runtime agent attachment, so the image build packages
+# the already-tested application without executing the test suite again.
+RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine
 RUN addgroup -S -g 10001 soundstream \
